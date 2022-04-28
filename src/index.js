@@ -39,9 +39,9 @@ app.post('/participants', async (req, res) => {
         await mongoClient.connect();
         database = mongoClient.db("UOL-API");
 
-        const participants = await database.collection("participants").find({nome: body.name}).toArray();
+        const participants = await database.collection("participants").find({name: body.name}).toArray();
         
-        if (!participants) {
+        if (participants.length !== 0) {
             res.sendStatus(409);
             return;
         }
@@ -67,11 +67,46 @@ app.get('/participants', async (req, res) => {
         res.send(participants);
         mongoClient.close();
     } catch(e) {
-        console.log(chalk.bold.red('Deu erro no post /participants', e));
+        console.log(chalk.bold.red('Deu erro no get /participants', e));
         res.status(422).send(e);
         mongoClient.close();
     }
 });
+
+app.post('/messages', async (req, res) => {
+    const {body} = req;
+    const userFrom = req.header('user');
+
+    try {
+        await mongoClient.connect();
+        database = mongoClient.db("UOL-API");
+
+        const participants = await database.collection("participants").find({name: userFrom}).toArray();
+
+        if (!body.to || !body.text || (body.type !== 'message' && body.type !== 'private_message') || !participants) {
+            res.sendStatus(422);
+            console.log('falhou aqui');
+            return;
+        }
+
+        const objMessage = {
+            from: userFrom,
+            to: body.to,
+            text: body.text,
+            type: body.type,
+            time: dayjs().format('HH:mm:ss')
+        }
+
+        await database.collection("messages").insertOne(objMessage);
+        res.sendStatus(201);
+        mongoClient.close();
+    } catch(e) {
+        console.log(chalk.bold.red('Deu erro no post /messages', e));
+        res.status(422).send(e);
+        mongoClient.close();
+    }
+});
+
 
 app.listen(5000, () => console.log(chalk.bold.green('Server on at http://localhost:5000')));
 
