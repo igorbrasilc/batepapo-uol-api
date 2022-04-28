@@ -55,7 +55,23 @@ app.post('/participants', async (req, res) => {
         res.status(422).send(e);
         mongoClient.close();
     }
-})
+});
+
+app.get('/participants', async (req, res) => {
+    try {
+        await mongoClient.connect();
+        database = mongoClient.db("UOL-API");
+
+        const participants = await database.collection("participants").find({}).toArray();
+
+        res.send(participants);
+        mongoClient.close();
+    } catch(e) {
+        console.log(chalk.bold.red('Deu erro no post /participants', e));
+        res.status(422).send(e);
+        mongoClient.close();
+    }
+});
 
 app.listen(5000, () => console.log(chalk.bold.green('Server on at http://localhost:5000')));
 
