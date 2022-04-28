@@ -142,6 +142,33 @@ app.get('/messages', async (req, res) => {
         res.status(422).send(e);
         mongoClient.close();
     }
+});
+
+app.post('/status', async (req, res) => {
+    const userFrom = req.header('user');
+
+    try {
+        await mongoClient.connect();
+        database = mongoClient.db(dbName);
+
+        const participant = await database.collection("participants").find({name: userFrom}).toArray();
+        
+        if (!participant) {
+            res.sendStatus(404);
+            mongoClient.close();
+            console.log('Não tem esse participante');
+            return;
+        }
+
+        await database.collection("participants").updateOne({name: userFrom}, {$set: {lastStatus: Date.now()}});
+        res.sendStatus(200);
+        mongoClient.close();
+    } catch(e) {
+        console.log(chalk.bold.red('Deu erro no post /status', e));
+        res.status(404).send(e);
+        mongoClient.close();
+    }
+
 })
 
 app.listen(5000, () => console.log(chalk.bold.green('Server on at http://localhost:5000')));
