@@ -1,3 +1,4 @@
+/* eslint-disable no-plusplus */
 /* eslint-disable no-useless-return */
 import {MongoClient} from 'mongodb';
 import express, {json} from 'express';
@@ -12,6 +13,7 @@ app.use(cors());
 app.use(json());
 
 let database = null;
+const dbName = "UOL-API";
 const mongoClient = new MongoClient(process.env.MONGO_URL);
 
 app.post('/participants', async (req, res) => {
@@ -37,7 +39,7 @@ app.post('/participants', async (req, res) => {
     
     try {
         await mongoClient.connect();
-        database = mongoClient.db("UOL-API");
+        database = mongoClient.db(dbName);
 
         const participants = await database.collection("participants").find({name: body.name}).toArray();
         
@@ -60,7 +62,7 @@ app.post('/participants', async (req, res) => {
 app.get('/participants', async (req, res) => {
     try {
         await mongoClient.connect();
-        database = mongoClient.db("UOL-API");
+        database = mongoClient.db(dbName);
 
         const participants = await database.collection("participants").find({}).toArray();
 
@@ -79,7 +81,7 @@ app.post('/messages', async (req, res) => {
 
     try {
         await mongoClient.connect();
-        database = mongoClient.db("UOL-API");
+        database = mongoClient.db(dbName);
 
         const participants = await database.collection("participants").find({name: userFrom}).toArray();
 
@@ -107,6 +109,40 @@ app.post('/messages', async (req, res) => {
     }
 });
 
+app.get('/messages', async (req, res) => {
+    const {limit} = req.query;
+    const userFrom = req.header('user');
+
+    try {
+        await mongoClient.connect();
+        database = mongoClient.db(dbName);
+
+        const messages = await database.collection("messages").find({}).toArray();
+
+        const messagesFiltered = messages.filter(message => {
+            if (message.from === userFrom || message.to === userFrom || message.type === 'message' || message.type === 'status') {
+                return true
+            }
+
+            return false;
+        }).reverse();
+
+        // eslint-disable-next-line prefer-const
+        let messagesLimited = [];
+
+        for (let i = 0; i < messagesFiltered.length; i++) {
+            if (i < limit) messagesLimited.push(messagesFiltered[i]);
+            else break;
+        }
+
+        res.send(messagesLimited.reverse());
+        mongoClient.close();
+    } catch(e) {
+        console.log(chalk.bold.red('Deu erro no get /messages', e));
+        res.status(422).send(e);
+        mongoClient.close();
+    }
+})
 
 app.listen(5000, () => console.log(chalk.bold.green('Server on at http://localhost:5000')));
 
