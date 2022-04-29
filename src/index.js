@@ -1,6 +1,6 @@
 /* eslint-disable no-plusplus */
 /* eslint-disable no-useless-return */
-import {MongoClient} from 'mongodb';
+import {MongoClient, ObjectId} from 'mongodb';
 import express, {json} from 'express';
 import cors from 'cors';
 import chalk from 'chalk';
@@ -164,6 +164,36 @@ app.post('/status', async (req, res) => {
         res.status(404).send(e);
     }
 });
+
+app.delete('/messages/:idMessage', async (req, res) => {
+    const userFrom = req.header('user');
+    const {idMessage} = req.params;
+
+    try {
+        const mongoClient = new MongoClient(process.env.MONGO_URL);
+        await mongoClient.connect();
+        database = mongoClient.db(dbName);
+
+        const message = await database.collection('messages').findOne({_id: new ObjectId(idMessage)});
+
+        if (!message) {
+            res.sendStatus(404);
+            return;
+        }
+
+        if (userFrom !== message.from) {
+            res.sendStatus(401);
+            return;
+        }
+
+        await database.collection('messages').deleteOne({_id: new ObjectId(idMessage)});
+        res.sendStatus(200);
+        mongoClient.close();
+    } catch(e) {
+        console.log(chalk.bold.red('Deu erro no delete', e));
+        res.status(404).send(e);
+    }
+})
 
 async function autoRemove() {
     try {
