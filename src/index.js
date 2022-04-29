@@ -13,8 +13,7 @@ app.use(cors());
 app.use(json());
 
 let database = null;
-const dbName = "UOL-API";
-const mongoClient = new MongoClient(process.env.MONGO_URL);
+const dbName = process.env.MONGO_DATABASE;
 
 app.post('/participants', async (req, res) => {
     const {body} = req;
@@ -38,6 +37,7 @@ app.post('/participants', async (req, res) => {
     }
     
     try {
+        const mongoClient = new MongoClient(process.env.MONGO_URL);
         await mongoClient.connect();
         database = mongoClient.db(dbName);
 
@@ -55,12 +55,12 @@ app.post('/participants', async (req, res) => {
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no post /participants', e));
         res.status(422).send(e);
-        mongoClient.close();
     }
 });
 
 app.get('/participants', async (req, res) => {
     try {
+        const mongoClient = new MongoClient(process.env.MONGO_URL);
         await mongoClient.connect();
         database = mongoClient.db(dbName);
 
@@ -71,7 +71,6 @@ app.get('/participants', async (req, res) => {
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no get /participants', e));
         res.status(422).send(e);
-        mongoClient.close();
     }
 });
 
@@ -80,6 +79,7 @@ app.post('/messages', async (req, res) => {
     const userFrom = req.header('user');
 
     try {
+        const mongoClient = new MongoClient(process.env.MONGO_URL);
         await mongoClient.connect();
         database = mongoClient.db(dbName);
 
@@ -105,33 +105,28 @@ app.post('/messages', async (req, res) => {
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no post /messages', e));
         res.status(422).send(e);
-        mongoClient.close();
     }
 });
 
 app.get('/messages', async (req, res) => {
-    const {limit} = req.query;
+    let {limit} = req.query;
     const userFrom = req.header('user');
 
+    if (!limit) limit = 100;
+
     try {
+        const mongoClient = new MongoClient(process.env.MONGO_URL);
         await mongoClient.connect();
         database = mongoClient.db(dbName);
 
-        const messages = await database.collection("messages").find({}).toArray();
-
-        const messagesFiltered = messages.filter(message => {
-            if (message.from === userFrom || message.to === userFrom || message.type === 'message' || message.type === 'status') {
-                return true
-            }
-
-            return false;
-        }).reverse();
+        const messages = await database.collection("messages").find({$or: [{from: userFrom}, {to: userFrom}, {to: 'Todos'}]}).toArray();
 
         // eslint-disable-next-line prefer-const
-        let messagesLimited = [];
+        const messagesInv = messages.reverse();
+        const messagesLimited = [];
 
-        for (let i = 0; i < messagesFiltered.length; i++) {
-            if (i < limit) messagesLimited.push(messagesFiltered[i]);
+        for (let i = 0; i < messagesInv.length; i++) {
+            if (i < limit) messagesLimited.push(messagesInv[i]);
             else break;
         }
 
@@ -140,7 +135,6 @@ app.get('/messages', async (req, res) => {
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no get /messages', e));
         res.status(422).send(e);
-        mongoClient.close();
     }
 });
 
@@ -148,8 +142,10 @@ app.post('/status', async (req, res) => {
     const userFrom = req.header('user');
 
     try {
+        const mongoClient = new MongoClient(process.env.MONGO_URL);
         await mongoClient.connect();
         database = mongoClient.db(dbName);
+        
 
         const participant = await database.collection("participants").find({name: userFrom}).toArray();
         
@@ -166,11 +162,47 @@ app.post('/status', async (req, res) => {
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no post /status', e));
         res.status(404).send(e);
-        mongoClient.close();
     }
+});
 
-})
+async function autoRemove() {
+    try {
+        const mongoClient = new MongoClient(process.env.MONGO_URL);
+        await mongoClient.connect();
+        database = mongoClient.db(dbName);
 
-app.listen(5000, () => console.log(chalk.bold.green('Server on at http://localhost:5000')));
+        const participants = await database.collection("participants").find({}).toArray();
+
+        const participantsOffline = participants.filter(participant => {
+            if (Math.abs(participant.lastStatus - Date.now()) > 10000) {
+                return true;
+            }
+
+            return false
+        });
+
+        for (let i = 0; i < participantsOffline.length; i++) {
+            // eslint-disable-next-line no-await-in-loop
+            await database.collection('participants').deleteOne({name: participantsOffline[i].name});
+            // eslint-disable-next-line no-await-in-loop
+            await database.collection('messages').insertOne({
+                from: participantsOffline[i].name,
+                to: 'Todos',
+                text: 'sai da sala...',
+                type: 'status',
+                time: dayjs().format('HH:mm:ss')
+            });
+        }
+
+        mongoClient.close();
+
+    } catch(e) {
+        console.log(chalk.bold.red('Deu erro no autoRemove', e));
+    }
+}
+
+setInterval(() => autoRemove(), 15000);
+
+app.listen(process.env.PORTA, () => console.log(chalk.bold.green('Server on at http://localhost:5000')));
 
 
