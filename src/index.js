@@ -6,6 +6,7 @@ import cors from 'cors';
 import chalk from 'chalk';
 import dotenv from 'dotenv';
 import dayjs from 'dayjs';
+import Joi from 'joi';
 
 const app = express();
 dotenv.config();
@@ -25,11 +26,25 @@ promise.catch(() => {
     console.log(chalk.bold.red('Conexão com o Mongo falhou'));
 });
 
+const participantSchema = Joi.object({
+    name: Joi.string().required()
+});
+
+const messageSchema = Joi.object({
+    to: Joi.string().required(), 
+    text: Joi.string().required(),
+    type: Joi.string().valid('message', 'private_message').required(),
+    from: Joi.required(),
+    time: Joi.required()
+});
+
 app.post('/participants', async (req, res) => {
     const {body} = req;
-    
-    if (!body.name) {
-        res.sendStatus(422);
+
+    try {
+        await participantSchema.validateAsync(body, { abortEarly: false});
+    } catch(e) {
+        res.status(422).send(e.details.map(detail => detail.message));
         return;
     }
 
@@ -77,22 +92,29 @@ app.get('/participants', async (req, res) => {
 app.post('/messages', async (req, res) => {
     const {body} = req;
     const userFrom = req.header('user');
+    
+    const objMessage = {
+        from: userFrom,
+        to: body.to,
+        text: body.text,
+        type: body.type,
+        time: dayjs().format('HH:mm:ss')
+    };
+
     try {
+        await messageSchema.validateAsync(objMessage, { abortEarly: false});
+    } catch(e) {
+        res.status(422).send(e.details.map(detail => detail.message));
+        return;
+    }
 
-        const participants = await database.collection("participants").find({name: userFrom}).toArray();
-        
-        if (!body.to || !body.text || (body.type !== 'message' && body.type !== 'private_message') || !participants) {
+    try {
+        const participants = await database.collection("participants").findOne({name: userFrom});
+
+        if (!participants) {
             res.sendStatus(422);
-            console.log('falhou aqui');
+            console.log('O participante deve já estar cadastrado');
             return;
-        }
-
-        const objMessage = {
-            from: userFrom,
-            to: body.to,
-            text: body.text,
-            type: body.type,
-            time: dayjs().format('HH:mm:ss')
         }
 
         await database.collection("messages").insertOne(objMessage);
@@ -133,13 +155,10 @@ app.post('/status', async (req, res) => {
     const userFrom = req.header('user');
 
     try {
-        
-
         const participant = await database.collection("participants").find({name: userFrom}).toArray();
         
         if (!participant) {
             res.sendStatus(404);
-
             console.log('Não tem esse participante');
             return;
         }
@@ -157,7 +176,6 @@ app.delete('/messages/:idMessage', async (req, res) => {
     const {idMessage} = req.params;
 
     try {
-
         const message = await database.collection('messages').findOne({_id: new ObjectId(idMessage)});
 
         if (!message) {
@@ -176,11 +194,53 @@ app.delete('/messages/:idMessage', async (req, res) => {
         console.log(chalk.bold.red('Deu erro no delete', e));
         res.status(404).send(e);
     }
+});
+
+app.put('/messages/:idMessage', async (req, res) => {
+    const {body} = req;
+    const userFrom = req.header('user');
+    const {idMessage} = req.params;
+
+    const objMessage = {
+        from: userFrom,
+        to: body.to,
+        text: body.text,
+        type: body.type,
+        time: dayjs().format('HH:mm:ss')
+    };
+
+    try {
+        await messageSchema.validateAsync(objMessage, { abortEarly: false});
+    } catch(e) {
+        res.status(422).send(e.details.map(detail => detail.message));
+        return;
+    }
+
+    try {
+        const messageSearch = await database.collection('messages')
+        .findOne({_id: new ObjectId(idMessage)});
+
+        if (!messageSearch) {
+            res.sendStatus(404);
+            return;
+        }
+
+        if (userFrom !== messageSearch.from) {
+            res.sendStatus(401);
+            return;
+        }
+
+        await database.collection('messages').updateOne({_id: new ObjectId(idMessage)}, {$set: body});
+        res.sendStatus(201);
+
+    } catch(e) {
+        console.log(chalk.bold.red('Deu erro no put /messages', e));
+        res.status(422).send(e);
+    }
 })
 
 async function autoRemove() {
     try {
-
         const participants = await database.collection("participants").find({}).toArray();
 
         const participantsOffline = participants.filter(participant => {
@@ -203,8 +263,6 @@ async function autoRemove() {
                 time: dayjs().format('HH:mm:ss')
             });
         }
-
-
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no autoRemove', e));
     }
