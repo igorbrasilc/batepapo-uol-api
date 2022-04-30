@@ -12,8 +12,18 @@ dotenv.config();
 app.use(cors());
 app.use(json());
 
-let database = null;
 const dbName = process.env.MONGO_DATABASE;
+let database = null;
+
+const mongoClient = new MongoClient(process.env.MONGO_URL);
+const promise = mongoClient.connect();
+promise.then(() => {
+    database = mongoClient.db(dbName);
+    console.log(chalk.bold.blue('Conexão com o Mongo ok'));  
+});
+promise.catch(() => {
+    console.log(chalk.bold.red('Conexão com o Mongo falhou'));
+});
 
 app.post('/participants', async (req, res) => {
     const {body} = req;
@@ -37,9 +47,6 @@ app.post('/participants', async (req, res) => {
     }
     
     try {
-        const mongoClient = new MongoClient(process.env.MONGO_URL);
-        await mongoClient.connect();
-        database = mongoClient.db(dbName);
 
         const participants = await database.collection("participants").find({name: body.name}).toArray();
         
@@ -51,7 +58,6 @@ app.post('/participants', async (req, res) => {
         await database.collection("participants").insertOne(objParticipant);
         await database.collection("messages").insertOne(objMessage);
         res.sendStatus(201);
-        mongoClient.close();
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no post /participants', e));
         res.status(422).send(e);
@@ -60,14 +66,8 @@ app.post('/participants', async (req, res) => {
 
 app.get('/participants', async (req, res) => {
     try {
-        const mongoClient = new MongoClient(process.env.MONGO_URL);
-        await mongoClient.connect();
-        database = mongoClient.db(dbName);
-
         const participants = await database.collection("participants").find({}).toArray();
-
         res.send(participants);
-        mongoClient.close();
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no get /participants', e));
         res.status(422).send(e);
@@ -77,14 +77,10 @@ app.get('/participants', async (req, res) => {
 app.post('/messages', async (req, res) => {
     const {body} = req;
     const userFrom = req.header('user');
-
     try {
-        const mongoClient = new MongoClient(process.env.MONGO_URL);
-        await mongoClient.connect();
-        database = mongoClient.db(dbName);
 
         const participants = await database.collection("participants").find({name: userFrom}).toArray();
-
+        
         if (!body.to || !body.text || (body.type !== 'message' && body.type !== 'private_message') || !participants) {
             res.sendStatus(422);
             console.log('falhou aqui');
@@ -101,7 +97,6 @@ app.post('/messages', async (req, res) => {
 
         await database.collection("messages").insertOne(objMessage);
         res.sendStatus(201);
-        mongoClient.close();
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no post /messages', e));
         res.status(422).send(e);
@@ -115,9 +110,6 @@ app.get('/messages', async (req, res) => {
     if (!limit) limit = 100;
 
     try {
-        const mongoClient = new MongoClient(process.env.MONGO_URL);
-        await mongoClient.connect();
-        database = mongoClient.db(dbName);
 
         const messages = await database.collection("messages").find({$or: [{from: userFrom}, {to: userFrom}, {to: 'Todos'}]}).toArray();
 
@@ -131,7 +123,6 @@ app.get('/messages', async (req, res) => {
         }
 
         res.send(messagesLimited.reverse());
-        mongoClient.close();
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no get /messages', e));
         res.status(422).send(e);
@@ -142,23 +133,19 @@ app.post('/status', async (req, res) => {
     const userFrom = req.header('user');
 
     try {
-        const mongoClient = new MongoClient(process.env.MONGO_URL);
-        await mongoClient.connect();
-        database = mongoClient.db(dbName);
         
 
         const participant = await database.collection("participants").find({name: userFrom}).toArray();
         
         if (!participant) {
             res.sendStatus(404);
-            mongoClient.close();
+
             console.log('Não tem esse participante');
             return;
         }
 
         await database.collection("participants").updateOne({name: userFrom}, {$set: {lastStatus: Date.now()}});
         res.sendStatus(200);
-        mongoClient.close();
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no post /status', e));
         res.status(404).send(e);
@@ -170,9 +157,6 @@ app.delete('/messages/:idMessage', async (req, res) => {
     const {idMessage} = req.params;
 
     try {
-        const mongoClient = new MongoClient(process.env.MONGO_URL);
-        await mongoClient.connect();
-        database = mongoClient.db(dbName);
 
         const message = await database.collection('messages').findOne({_id: new ObjectId(idMessage)});
 
@@ -188,7 +172,6 @@ app.delete('/messages/:idMessage', async (req, res) => {
 
         await database.collection('messages').deleteOne({_id: new ObjectId(idMessage)});
         res.sendStatus(200);
-        mongoClient.close();
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no delete', e));
         res.status(404).send(e);
@@ -197,9 +180,6 @@ app.delete('/messages/:idMessage', async (req, res) => {
 
 async function autoRemove() {
     try {
-        const mongoClient = new MongoClient(process.env.MONGO_URL);
-        await mongoClient.connect();
-        database = mongoClient.db(dbName);
 
         const participants = await database.collection("participants").find({}).toArray();
 
@@ -224,7 +204,6 @@ async function autoRemove() {
             });
         }
 
-        mongoClient.close();
 
     } catch(e) {
         console.log(chalk.bold.red('Deu erro no autoRemove', e));
